@@ -1,0 +1,37 @@
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agriai_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/AGRIAI
+    working_dir: /AGRIAI
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - redis
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agriai_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/AGRIAI
+      - /AGRIAI/node_modules
+    working_dir: /AGRIAI
+    env_file:
+      - ./frontend/.env
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:7.2
+    container_name: agriai_redis
+    ports:
+      - "6379:6379"
