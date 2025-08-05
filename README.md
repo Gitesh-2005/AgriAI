@@ -36,7 +36,7 @@ cd AgriAI
 
 ### Step 2. Build Docker Container 
 # (Make sure that first docker is running locally)
-docker-compose build --no-cache
+docker-compose build --no-cache 
 
 ### Step 3. Starting the Container
 docker-compose up
