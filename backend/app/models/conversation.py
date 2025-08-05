@@ -15,7 +15,7 @@ class Conversation(Base):
     intent = Column(String)
     confidence_score = Column(Float)
     language = Column(String, default="en")
-    metadata = Column(Text)  # JSON string
+    meta_data = Column(Text)  # JSON string
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     user = relationship("User")

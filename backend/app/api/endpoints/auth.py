@@ -114,7 +114,7 @@ async def login(login_data: UserLogin, db: Session = Depends(get_db)):
         user_type=user.user_type
     )
 
-@router.get("/me")
+@router.get("/users/me")
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     return {
         "id": current_user.id,
@@ -123,5 +123,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "user_type": current_user.user_type,
         "language_preference": current_user.language_preference,
         "location": current_user.location,
-        "farm_size": current_user.farm_size
+        "farm_size": current_user.farm_size,
+        "is_active": current_user.is_active,
+        "created_at": current_user.created_at
     }

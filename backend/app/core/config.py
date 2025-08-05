@@ -6,7 +6,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./agri_ai.db"
     
     # Redis
-    redis_url: str = "redis://localhost:6379"
+    redis_url: str = "redis://redis:6379"
+
+    redis: Optional[str] = None
     
     # JWT
     secret_key: str = "your-super-secret-jwt-key-change-this-in-production"
