@@ -6,6 +6,21 @@ import toast from 'react-hot-toast';
 import { chatAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import VoiceInput from '../components/VoiceInput';
+
+const languageOptions = [
+  { value: 'en-IN', label: 'English (India)' },
+  { value: 'hi-IN', label: 'Hindi' },
+  { value: 'mr-IN', label: 'Marathi' },
+  { value: 'gu-IN', label: 'Gujarati' },
+  { value: 'pa-IN', label: 'Punjabi' },
+  { value: 'ta-IN', label: 'Tamil' },
+  { value: 'te-IN', label: 'Telugu' },
+  { value: 'bn-IN', label: 'Bengali' },
+  { value: 'kn-IN', label: 'Kannada' },
+  { value: 'ml-IN', label: 'Malayalam' },
+  // Add more as needed
+];
 
 interface Message {
   id: string;
@@ -22,6 +37,7 @@ const Chat: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [sessionId] = useState(() => `session_${Date.now()}`);
   const [isListening, setIsListening] = useState(false);
+  const [voiceLang, setVoiceLang] = useState('en-IN');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   
@@ -72,18 +88,18 @@ const Chat: React.FC = () => {
     },
   });
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || sendMessageMutation.isPending) return;
+  const handleSendMessage = async (text: string) => {
+    if (!text.trim() || sendMessageMutation.isPending) return;
 
     const userMessage: Message = {
       id: `user_${Date.now()}`,
       type: 'user',
-      content: inputValue.trim(),
+      content: text.trim(),
       timestamp: new Date(),
     };
 
     setMessages(prev => [...prev, userMessage]);
-    const messageContent = inputValue.trim();
+    const messageContent = text.trim();
     setInputValue('');
 
     // Send to API
@@ -102,44 +118,58 @@ const Chat: React.FC = () => {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      handleSendMessage(inputValue);
     }
   };
 
-  // Voice recognition (basic implementation)
-  const toggleVoiceRecording = () => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      const recognition = new SpeechRecognition();
-      
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = user?.language_preference === 'hi' ? 'hi-IN' : 'en-IN';
-      
-      if (!isListening) {
-        setIsListening(true);
-        recognition.start();
-        
-        recognition.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
-          setInputValue(transcript);
-          setIsListening(false);
-        };
-        
-        recognition.onerror = () => {
-          setIsListening(false);
-          toast.error('Voice recognition failed. Please try again.');
-        };
-        
-        recognition.onend = () => {
-          setIsListening(false);
-        };
-      } else {
-        recognition.stop();
-        setIsListening(false);
+  // Voice recording for mic button (backend transcription)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunks = useRef<Blob[]>([]);
+
+  const startMicRecording = async () => {
+    setIsListening(true);
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mediaRecorder = new MediaRecorder(stream);
+    mediaRecorderRef.current = mediaRecorder;
+    audioChunks.current = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunks.current.push(event.data);
       }
+    };
+
+    mediaRecorder.onstop = async () => {
+      setIsListening(false);
+      const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' });
+      // Send to backend
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'recording.webm');
+      formData.append('language', voiceLang);
+      try {
+        const res = await fetch('http://localhost:8000/api/v1/stt/transcribe/', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        setInputValue(data.translation); // Use translation
+      } catch (err) {
+        toast.error('Transcription failed.');
+      }
+    };
+    mediaRecorder.start();
+  };
+
+  const stopMicRecording = () => {
+    setIsListening(false);
+    mediaRecorderRef.current?.stop();
+  };
+
+  const toggleVoiceRecording = () => {
+    if (!isListening) {
+      startMicRecording();
     } else {
-      toast.error('Voice recognition is not supported in your browser.');
+      stopMicRecording();
     }
   };
 
@@ -294,7 +324,7 @@ const Chat: React.FC = () => {
             </button>
           </div>
           <button
-            onClick={handleSendMessage}
+            onClick={() => handleSendMessage(inputValue)}
             disabled={!inputValue.trim() || sendMessageMutation.isPending}
             className="p-3 bg-gradient-to-r from-green-500 to-blue-600 text-white rounded-full hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 disabled:transform-none"
           >
@@ -314,6 +344,28 @@ const Chat: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Voice Input Component */}
+      <div className="p-4 border-t flex flex-col items-center space-y-2">
+        <div className="mb-2 w-full flex justify-center">
+          <label htmlFor="voice-lang" className="mr-2 font-medium">Input Language:</label>
+          <select
+            id="voice-lang"
+            value={voiceLang}
+            onChange={e => setVoiceLang(e.target.value)}
+            className="border rounded px-2 py-1"
+          >
+            {languageOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        <VoiceInput
+          onTranscript={setInputValue}
+          onSpeech={() => {}}
+          language={voiceLang}
+        />
       </div>
     </div>
   );

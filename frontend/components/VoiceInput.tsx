@@ -14,8 +14,14 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
 }) => {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [audioURL, setAudioURL] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [interim, setInterim] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunks = useRef<Blob[]>([]);
 
   // Initialize speech recognition
   const initializeSpeechRecognition = () => {
@@ -106,37 +112,89 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
     }
   };
 
+  const startRecording = async () => {
+    setTranscript(null);
+    setInterim(null);
+    setAudioURL(null);
+    setIsListening(true);
+    setProcessing(false);
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mediaRecorder = new MediaRecorder(stream);
+    mediaRecorderRef.current = mediaRecorder;
+    audioChunks.current = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunks.current.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' });
+      setAudioURL(URL.createObjectURL(audioBlob));
+      setInterim('Processing...');
+      setProcessing(true);
+      // Send to backend
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'recording.webm');
+      formData.append('language', language); // Pass language to backend
+      try {
+        const res = await fetch('http://localhost:8000/api/v1/stt/transcribe/', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        setTranscript(data.translation); // Use translation
+        setInterim(null);
+      } catch (err) {
+        setTranscript('Transcription failed.');
+        setInterim(null);
+      }
+      setProcessing(false);
+    };
+
+    mediaRecorder.start();
+  };
+
+  const stopRecording = () => {
+    setIsListening(false);
+    mediaRecorderRef.current?.stop();
+  };
+
   return (
-    <div className="flex items-center space-x-2">
+    <div className="flex flex-col items-center space-y-4">
       {/* Voice Input Button */}
       <button
-        onClick={isListening ? stopListening : startListening}
-        className={`p-2 rounded-full transition-colors ${
+        onClick={isListening ? stopRecording : startRecording}
+        className={`px-6 py-3 rounded-full font-bold text-white ${
           isListening
-            ? 'bg-red-100 text-red-600 hover:bg-red-200'
-            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-        }`}
+            ? 'bg-red-500'
+            : 'bg-green-600'
+        } transition-colors`}
         title={isListening ? 'Stop listening' : 'Start voice input'}
       >
-        {isListening ? (
-          <MicOff className="h-4 w-4" />
-        ) : (
-          <Mic className="h-4 w-4" />
-        )}
+        {isListening ? 'Stop Recording' : 'Start Voice Input'}
       </button>
 
-      {/* Text-to-Speech Button */}
-      <button
-        onClick={isSpeaking ? stopSpeaking : () => speakText('Hello, I am your AI agriculture assistant')}
-        className={`p-2 rounded-full transition-colors ${
-          isSpeaking
-            ? 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-        }`}
-        title={isSpeaking ? 'Stop speaking' : 'Test voice output'}
-      >
-        <Volume2 className="h-4 w-4" />
-      </button>
+      {/* Audio Playback */}
+      {audioURL && (
+        <audio controls src={audioURL} className="mt-2" />
+      )}
+
+      {/* Interim Transcript */}
+      {interim && (
+        <div className="text-blue-600 font-medium">You said: ... {interim}</div>
+      )}
+
+      {/* Processing Indicator */}
+      {processing && (
+        <div className="text-gray-500">Processing...</div>
+      )}
+
+      {/* Final Transcript */}
+      {transcript && (
+        <div className="text-green-700 font-semibold">Transcription: {transcript}</div>
+      )}
 
       {/* Status Indicator */}
       {isListening && (

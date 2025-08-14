@@ -12,6 +12,7 @@ from app.agents.irrigation_planning import IrrigationPlanningAgent
 from app.agents.financial_planning import FinancialPlanningAgent
 from app.agents.policy_query import PolicyQueryAgent
 from app.agents.translation import TranslationAgent
+from app.agents.llm_chat import LLMChatAgent
 from app.core.redis_client import redis_client
 
 class AgentOrchestrator:
@@ -28,6 +29,7 @@ class AgentOrchestrator:
             "financial_planning": FinancialPlanningAgent(),
             "policy_query": PolicyQueryAgent(),
             "translation": TranslationAgent(),
+            "llm_chat": LLMChatAgent(),
         }
         
         # Agent routing map
@@ -52,7 +54,6 @@ class AgentOrchestrator:
         context: Optional[Dict] = None
     ) -> AgentResponse:
         """Process a user query through the agent system"""
-        
         try:
             # Step 1: Classify intent
             intent_response = await self.agents["intent_classifier"].process(query, context)
@@ -63,12 +64,14 @@ class AgentOrchestrator:
             if context:
                 user_context.update(context)
             
+            # Ensure conversation_history is present
+            if "conversation_history" not in user_context:
+                user_context["conversation_history"] = []
+            
             # Step 3: Route to appropriate agent
             agent_name = self.intent_to_agent.get(primary_intent, "crop_advisory")
             agent = self.agents.get(agent_name)
-            
             if not agent:
-                # Fallback to crop advisory
                 agent = self.agents["crop_advisory"]
                 agent_name = "crop_advisory"
             
@@ -79,7 +82,22 @@ class AgentOrchestrator:
             enhanced_response = await self._enhance_response(response, intent_response, user_context)
             
             # Step 6: Save conversation to memory
+            # Update conversation_history
+            user_context["conversation_history"].append({
+                "user": query,
+                "assistant": enhanced_response.response
+            })
+            # Keep only last 10 turns
+            user_context["conversation_history"] = user_context["conversation_history"][-10:]
             await self._save_conversation(user_id, session_id, query, enhanced_response)
+            
+            # Save updated user_context with conversation_history
+            context_key = f"user_context:{user_id}"
+            await redis_client.setex(
+                context_key, 
+                3600 * 24 * 7,  # 7 days
+                json.dumps(user_context)
+            )
             
             return enhanced_response
             
@@ -229,3 +247,9 @@ class AgentOrchestrator:
             except Exception as e:
                 health[name] = f"error: {str(e)}"
         return health
+    
+    async def route(self, query: str, context: dict = None) -> dict:
+        # For now, always use LLMChatAgent (or you can add intent logic)
+        agent = self.agents["llm_chat"]
+        response = await agent.process(query, context)
+        return response.dict()
